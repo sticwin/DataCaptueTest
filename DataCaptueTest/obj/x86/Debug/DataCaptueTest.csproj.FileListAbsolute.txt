@@ -1,0 +1,9 @@
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\bin\Debug\DataCaptueTest.exe
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\bin\Debug\DataCaptueTest.pdb
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.Form1.resources
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.Properties.Resources.resources
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.csproj.GenerateResource.Cache
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.exe
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.pdb
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.串口1.resources
+C:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Debug\DataCaptueTest.串口2.resources
