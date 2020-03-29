@@ -15,7 +15,7 @@ namespace DataCaptueTest
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new btnTest());
+            Application.Run(new MainForm());
         }
     }
 }

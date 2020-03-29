@@ -13,4 +13,4 @@ H:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\bin\Release\
 H:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Release\DataCaptueTest.csprojResolveAssemblyReference.cache
 H:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Release\DataCaptueTest.Properties.Resources.resources
 H:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Release\DataCaptueTest.csproj.GenerateResource.Cache
-H:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Release\DataCaptueTest.btnTest.resources
+H:\StevenFile\工程文件20180823\C#\DataCaptueTest\DataCaptueTest\obj\x86\Release\DataCaptueTest.MainForm.resources
