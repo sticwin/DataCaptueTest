@@ -9,10 +9,23 @@ using System.Windows.Forms;
 using System.IO;
 using System.IO.Ports;
 
+
+
 namespace DataCaptueTest
 {
     public partial class MainForm : Form
     {
+
+#if _Bend_Length_Record
+        struct cutLength
+        {
+            public double startLength;
+            public double endLength;
+            public double targetRectLength;
+        }
+#endif
+
+
         struct bendData
         {
             /// <summary>
@@ -35,6 +48,13 @@ namespace DataCaptueTest
             /// 本数据所属datagridview的行号，0开始
             /// </summary>
             public int iRowIndex;
+
+            #if _Bend_Length_Record
+            /// <summary>
+            /// 记录第i次折弯，有效的起始余料长度和结束余料长度，调试用
+            /// </summary>
+            public List<cutLength> iBentCutLength;  //记录第i次折弯，有效的起始余料长度和结束余料长度，调试用
+            #endif
         }
 
         List<bendData> BendTaskList = new List<bendData>();
@@ -49,10 +69,11 @@ namespace DataCaptueTest
         public static string strSelectedPorts = "";
 
         int iSensorSatus = 0x0000;
-        int testi = 0;
+
         public int iCommand = 0;
         public bool bShowHex, bClosing, bDataReceived;
-        public static string[] byteToHexStr = new string[] { "00 ", "01 ", "02 ", "03 ", "04 ", "05 ", "06 ", "07 ", "08 ", "09 ", "0A ", "0B ", "0C ", "0D ", "0E ", "0F ", 
+        public static string[] byteToHexStr = new string[] 
+                                                { "00 ", "01 ", "02 ", "03 ", "04 ", "05 ", "06 ", "07 ", "08 ", "09 ", "0A ", "0B ", "0C ", "0D ", "0E ", "0F ", 
                                                   "10 ", "11 ", "12 ", "13 ", "14 ", "15 ", "16 ", "17 ", "18 ", "19 ", "1A ", "1B ", "1C ", "1D ", "1E ", "1F ",
                                                   "20 ", "21 ", "22 ", "23 ", "24 ", "25 ", "26 ", "27 ", "28 ", "29 ", "2A ", "2B ", "2C ", "2D ", "2E ", "2F ",
                                                   "30 ", "31 ", "32 ", "33 ", "34 ", "35 ", "36 ", "37 ", "38 ", "39 ", "3A ", "3B ", "3C ", "3D ", "3E ", "3F ",
@@ -1125,7 +1146,7 @@ namespace DataCaptueTest
 
             if (!string.IsNullOrWhiteSpace(textBox2.Text))
             {
-                dCurMaterialLength = float.Parse(textBox2.Text); 
+                dCurMaterialLength = float.Parse(textBox2.Text);   //跟新当前的余料长度
             }
 
             switch ((iCommand++) %2)
@@ -1190,6 +1211,27 @@ namespace DataCaptueTest
                             strToHex("06 01 00 FF 06 31 00 01 11 05 13 A0 04");  //先发送的第一条命令
                             iBendStatus = 2;  //达到折弯长度，等待发送 折弯次数减一的数据
                             iCutStatus = 0;
+
+                            #if _Bend_Length_Record
+                            cutLength CutData = new cutLength();
+                            CutData.startLength = dStartBendLength;
+                            CutData.endLength = dCurMaterialLength;
+                            CutData.targetRectLength = dTargetRectLengthSum;
+                            BendTaskList[iBendListIndex].iBentCutLength.Add(CutData);
+
+                            //FileMode.Append为不覆盖文件效果.create为覆盖
+                            FileStream fs = new FileStream("record.txt", FileMode.Append);
+                            //"起始长度\t"+"结束长度\t"+"目标矩形长度\r\n"
+                            byte[] data = System.Text.Encoding.Default.GetBytes(DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss") + "\t" + 
+                                                                                dStartBendLength.ToString() + "\t" + 
+                                                                                dCurMaterialLength.ToString() + "\t" + dTargetRectLengthSum.ToString() + "\r\n");
+                            //开始写入
+                            fs.Write(data, 0, data.Length);
+                            //清空缓冲区、关闭流
+                            fs.Flush();
+                            fs.Close();
+
+                            #endif
                         }
 
                         if (iCutStatus == 0x14)
@@ -1713,6 +1755,7 @@ namespace DataCaptueTest
                     TempBendData.dLength_Two = double.Parse(dataGridView1.Rows[i].Cells[4].Value.ToString());
                     TempBendData.iBentNum = 0;
                     TempBendData.iRowIndex = i;
+                    TempBendData.iBentCutLength = new List<cutLength>();
 
                     if (TempBendData.iTaskNum < 1) { MessageBox.Show("第" + (i + 1).ToString() + "行，折弯次数错误。\r\n" + "执行失败"); return; }
                     if (TempBendData.dLength_One < 300) { MessageBox.Show("第" + (i + 1).ToString() + "行，折弯尺寸太小\r\n" + "执行失败"); return; }
