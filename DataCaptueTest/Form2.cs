@@ -11,11 +11,45 @@ using System.IO.Ports;
 
 namespace DataCaptueTest
 {
-    public partial class btnTest : Form
+    public partial class MainForm : Form
     {
+        struct bendData
+        {
+            /// <summary>
+            /// 胶深
+            /// </summary>
+            public double dGlueDepth;
+            /// <summary>
+            /// 目标开料次数
+            /// </summary>
+            public int iTaskNum;
+            /// <summary>
+            /// 已折弯的次数
+            /// </summary>
+            public int iBentNum;
+            /// <summary>
+            /// 长度1、长度2
+            /// </summary>
+            public double dLength_One, dLength_Two;
+            /// <summary>
+            /// 本数据所属datagridview的行号，0开始
+            /// </summary>
+            public int iRowIndex;
+        }
+
+        List<bendData> BendTaskList = new List<bendData>();
+        /// <summary>
+        /// 折弯任务链表所在的下标
+        /// </summary>
+        public int iBendListIndex;
+        /// <summary>
+        /// 当前剩余的折弯任务数
+        /// </summary>
+       // public int iBendListTaskCout;  
         public static string strSelectedPorts = "";
 
-
+        int iSensorSatus = 0x0000;
+        int testi = 0;
         public int iCommand = 0;
         public bool bShowHex, bClosing, bDataReceived;
         public static string[] byteToHexStr = new string[] { "00 ", "01 ", "02 ", "03 ", "04 ", "05 ", "06 ", "07 ", "08 ", "09 ", "0A ", "0B ", "0C ", "0D ", "0E ", "0F ", 
@@ -37,10 +71,10 @@ namespace DataCaptueTest
 
 
         public string[] NumToHex4bit = new string[] { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F" };
-        public byte[] byteSerialData = new byte[2024];
+        public byte[] byteSerialData = new byte[20240];
         public int byteRecvSum;
         string strShow = null;
-        int iRead = 0;
+        //int iRead = 0;
         int iKeyHint = 0xFF;
 
         string strSerialRecv = "";
@@ -49,14 +83,27 @@ namespace DataCaptueTest
 
         public bool bAutoLine = false;
 
-        public int iBenching = 0;   //0 未发送任何数据， 1发送了数据， 2发送准备结束的命令，等待发折弯次数减一的数据
+        /// <summary>
+        /// 0 未发送任何数据， 1发送了数据， 2发送准备结束的命令，等待发折弯次数减一的数据
+        /// </summary>
+        public int iBendStatus = 0;
+        /// <summary>
+        /// 0表示当前无cut， 开始切割时，状态依次为0x06、0x0E、0x14
+        /// </summary>
+        public int iCutStatus = 0, iLastCutStatus = 0;
+
+        double dCurRectLength;  //记录当前已经伸出的矩形长度
+        double dTargetRectLengthSum;
 
         public int iAutoLineNum = 0;
-        double dBenchLenght, dBenchHeight;
-        double dStartBenchLength, dCurMaterialLength;
-        string strBenchSendData;
+        /// <summary>
+        /// 当前折弯尺寸，用于计算矩形周长使用
+        /// </summary>
+        double dBendLenght, dBendHeight;
+        double dStartBendLength, dCurMaterialLength;
 
-        public btnTest()
+
+        public MainForm()
         {
             InitializeComponent();
         }
@@ -66,13 +113,22 @@ namespace DataCaptueTest
             InitCombBoxItem();
             bShowHex = true;
 
-            if (dataGridView1.Rows.Count == 1)
+            dataGridView1.TopLeftHeaderCell.Value = "序号";
+
+            for (int i = 0; i < 50; i++ )
             {
-                dataGridView1.Rows[0].Cells[0].Value = "8";
-                dataGridView1.Rows[0].Cells[1].Value = "1";
-                dataGridView1.Rows[0].Cells[2].Value = "350";
-                dataGridView1.Rows[0].Cells[3].Value = "450";
+                dataGridView1.Rows.Add();
+                dataGridView1.Rows[i].HeaderCell.Value = (i + 1).ToString() ;
+                dataGridView1.Rows[i].Cells[0].Value = false;
+                dataGridView1.Rows[i].Cells[1].Value = 8;
+                dataGridView1.Rows[i].Cells[2].Value = i % 4 +1 ;
+                dataGridView1.Rows[i].Cells[3].Value = 300+10*i;
+                dataGridView1.Rows[i].Cells[4].Value = 400+10*i;
             }
+
+            this.dataGridView1.RowEnter += new System.Windows.Forms.DataGridViewCellEventHandler(this.dataGridView1_RowEnter);
+            this.dataGridView1.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.dataGridView1_CellValueChanged);
+
         }
 
         private void InitCombBoxItem()
@@ -166,16 +222,14 @@ namespace DataCaptueTest
                 {
                     bClosing = true;
                     btnOpenClose.UseWaitCursor = true;
-                    btnOpenClose.Text = "关闭";
-                    btnOpenClose.BackColor = Color.White;
                     while (bDataReceived) { Application.DoEvents(); }
                     SerialPort1.Close();
+                    btnOpenClose.Text = "关闭";
+                    btnOpenClose.BackColor = Color.White;
                     btnOpenClose.UseWaitCursor = false;
                 }
                 else if (btnOpenClose.Text == "关闭")
                 {
-                    btnOpenClose.Text = "打开";
-                    btnOpenClose.BackColor = Color.Green;
                     bClosing = false;
                     SerialPort1.Close();    //更改串口号前， 先关闭串口
                     SerialPort1.PortName = cbbxPort.Text;
@@ -185,6 +239,8 @@ namespace DataCaptueTest
                     SerialPort1.StopBits = (StopBits)int.Parse(cbbxStopBits.Text);
 
                     SerialPort1.Open();
+                    btnOpenClose.Text = "打开";
+                    btnOpenClose.BackColor = Color.Green;
 
                 }
             }
@@ -381,8 +437,8 @@ namespace DataCaptueTest
                     SerialPort1.Close();
                     btnOpenClose.UseWaitCursor = false;
 
-                    btnOpenClose.Text = "打开";
-                    btnOpenClose.BackColor = Color.Green;
+                    //btnOpenClose.Text = "打开";
+                    //btnOpenClose.BackColor = Color.Green;
                     bClosing = false;
                     SerialPort1.Close();    //更改串口号前， 先关闭串口
                     SerialPort1.PortName = cbbxPort.Text;
@@ -391,7 +447,7 @@ namespace DataCaptueTest
                     SerialPort1.Parity = (Parity)cbbxParity.SelectedIndex;
                     SerialPort1.StopBits = (StopBits)int.Parse(cbbxStopBits.Text);
 
-                    SerialPort1.Open();
+                   // SerialPort1.Open();
                 }
                 
 
@@ -402,33 +458,33 @@ namespace DataCaptueTest
             }
 
 
-            if (false)
-            {
-                try
-                {
-                    bClosing = true;
-                    btnOpenClose.UseWaitCursor = true;
-                    //while (bDataReceived) { Application.DoEvents(); }
-                    SerialPort1.Close();
-                    btnOpenClose.UseWaitCursor = false;
+            //if (false)
+            //{
+            //    try
+            //    {
+            //        bClosing = true;
+            //        btnOpenClose.UseWaitCursor = true;
+            //        //while (bDataReceived) { Application.DoEvents(); }
+            //        SerialPort1.Close();
+            //        btnOpenClose.UseWaitCursor = false;
 
-                    SerialPort1.PortName = cbbxPort.Text;
-                    SerialPort1.BaudRate = int.Parse(cbbxBaudRate.Text);
-                    SerialPort1.DataBits = int.Parse(cbbxDataBits.Text);
-                    SerialPort1.Parity = (Parity)cbbxParity.SelectedIndex;
-                    SerialPort1.StopBits = (StopBits)int.Parse(cbbxStopBits.Text);
+            //        SerialPort1.PortName = cbbxPort.Text;
+            //        SerialPort1.BaudRate = int.Parse(cbbxBaudRate.Text);
+            //        SerialPort1.DataBits = int.Parse(cbbxDataBits.Text);
+            //        SerialPort1.Parity = (Parity)cbbxParity.SelectedIndex;
+            //        SerialPort1.StopBits = (StopBits)int.Parse(cbbxStopBits.Text);
 
-                    SerialPort1.Open();
-                }
-                catch (System.Exception ex)
-                {
-                    MessageBox.Show(ex.ToString());
-                    cbbxPort.SelectedIndex = 0;
-                    btnOpenClose.Text = "关闭";
-                    btnOpenClose.BackColor = Color.White;
-                }
+            //        SerialPort1.Open();
+            //    }
+            //    catch (System.Exception ex)
+            //    {
+            //        MessageBox.Show(ex.ToString());
+            //        cbbxPort.SelectedIndex = 0;
+            //        btnOpenClose.Text = "关闭";
+            //        btnOpenClose.BackColor = Color.White;
+            //    }
 
-            }
+            //}
 
         }
 
@@ -564,7 +620,7 @@ namespace DataCaptueTest
             return byteValue;
         }
 
-        private byte[] strToHex(string strInput)
+        private byte[] strToHex(string strInput)  //将string字符串，以byte形式发送
         {
             byte[] byteToReturn = new byte[1000];
             int j = 0;
@@ -744,6 +800,8 @@ namespace DataCaptueTest
 
         }
 
+
+        //解析数据
         public void ManipulateData()
         {
             if (strSerialRecv.Length < 2) return;
@@ -754,6 +812,7 @@ namespace DataCaptueTest
             //    strSerialRecv = strSerialRecv.Substring();
             //}
 
+            #region //搜索接收到的命令中是否有符合的命令
             int iStrToDeleteSum=0, iLastLRC_Index=0;
             for (int i = 0; i < byteRecvData.Length - 5; i++)  //先搜索01 00 FF这个帧头
             {
@@ -765,19 +824,17 @@ namespace DataCaptueTest
                     if (i + iDataFrameLength + 4 < byteRecvData.Length)
                     {
                         if (byteRecvData[i + iDataFrameLength + 4] == GetLRC_Result(byteRecvData, i, iDataFrameLength + 4))
-                        {
-                            analysisData(byteRecvData, i, iDataFrameLength);
+                        {  //找到符合LRC校验的数据
+                            analysisData(byteRecvData, i, iDataFrameLength);  //解析整包数据
                             i += iDataFrameLength + 4; //i 后面iDataLength的数据不用再校验， 加6 是应为 01 00 FF XX（长度） 04 06总共6个都可以跳过
                             iStrToDeleteSum += (i - iLastLRC_Index) * 3;
                             iLastLRC_Index = i;
-                            
-                            //strSerialRecv = strSerialRecv.Substring(3 * (iDataFrameLength + 4));
-                            //  MessageBox.Show("收到满足LRC校验的数据");
                         }
                     }
                 }
             }
-            strSerialRecv = strSerialRecv.Substring(iStrToDeleteSum);
+            #endregion
+            strSerialRecv = strSerialRecv.Substring(iStrToDeleteSum);  //从制定的下标开始，删减接收到的字符串
 
         }
 
@@ -785,9 +842,10 @@ namespace DataCaptueTest
         public void analysisData(byte[] byteData, int iStartIndex, int length)
         {
 
-            if (byteData[iStartIndex + 3] == 0x1C && byteData[iStartIndex + 4] == 0x21)
+            if (byteData[iStartIndex + 3] == 0x1C && byteData[iStartIndex + 4] == 0x21)  //1C 21是关于余料长度 和 传感器状态的
             { //获取余料长度
                 byte[] byteLength = new byte[4];
+                byte[] byteStatus = new byte[8];
 
                 byteLength[0] = byteData[iStartIndex + 28];
                 byteLength[1] = byteData[iStartIndex + 29];
@@ -797,6 +855,44 @@ namespace DataCaptueTest
                 float fLength = BitConverter.ToSingle(byteLength,0);
                 textBox2.Text = fLength.ToString();
 
+                #region  //读取状态字节，判断切割状态
+                for (int i = 0; i < 8; i++ )  {
+                    byteStatus[i] = byteData[iStartIndex + 8 + i];
+                }
+
+                switch (byteStatus[1])
+                {
+                    case 0:
+                        iLastCutStatus = iCutStatus;
+                        iCutStatus = 0;
+                        break;
+                    case 0x06:  //开始启动切割了
+                        iLastCutStatus = iCutStatus;
+                        iCutStatus = 0x06;
+                        break;
+                    case 0x0E: //切割中
+                        iLastCutStatus = iCutStatus;
+                        iCutStatus = 0x0E;
+                        break;
+                    case 0x14://切割完成了
+                        iLastCutStatus = iCutStatus;
+                        iCutStatus = 0x14;
+                        break;
+                    default:
+                        break;
+                }
+
+                iSensorSatus = (((int)byteStatus[6]) << 8)|((int)byteStatus[7]);
+
+                #endregion 
+
+                textBox7.Text = byteToHexStr[iCutStatus];
+
+                string tempStr="";
+                for (int i = 0; i < 8; i++ ){
+                    tempStr += byteToHexStr[byteStatus[i]];
+                }
+                textBox6.Text = tempStr;
             }
         }
 
@@ -1016,6 +1112,17 @@ namespace DataCaptueTest
 
         private void timer2_Tick(object sender, EventArgs e)
         {
+
+            ManipulateData();  //解析余料长度, 并更新到textBox2中
+
+            if (!SerialPort1.IsOpen)
+            {
+                lbl_Tips.Text = "串口未打开";  
+                return;
+            }
+
+            lbl_Tips.Text = "";
+
             if (!string.IsNullOrWhiteSpace(textBox2.Text))
             {
                 dCurMaterialLength = float.Parse(textBox2.Text); 
@@ -1026,84 +1133,181 @@ namespace DataCaptueTest
                 case 0:
                     if (SerialPort1.IsOpen)
                     {
-                        strToHex("06 01 00 FF 03 21 00 01 DC 04");
+                        strToHex("06 01 00 FF 03 21 00 01 DC 04");   //查询长度和状态
                     }
                     break;
-                case 1:
+                case 1:  //这样不会在一个周期内同时发出折弯结束 和 折弯任务减1的命令
+                    #region    //状态2，说明完成了一次折弯（4个边）
+                    if (iBendStatus == 2)
+                    {
+                        bendData tempBendData = BendTaskList[iBendListIndex];
+
+                        //先结束本次运行， 等R8空闲按，不为零才发新任务
+                        GetBendSendStrData(tempBendData.dGlueDepth,
+                                               0,
+                                               tempBendData.dLength_One,
+                                               tempBendData.dLength_Two);
+                         
+                        if ((iSensorSatus & 0x100) != 0x100)
+                        {//R8空闲了，说明可以发送新的折弯
+                            tempBendData.iBentNum += 1;
+                            BendTaskList[iBendListIndex] = tempBendData;
+                            if (tempBendData.iTaskNum > tempBendData.iBentNum)
+                            { //本次任务还未结束
+                                GetBendSendStrData(tempBendData.dGlueDepth,
+                                                    tempBendData.iTaskNum - tempBendData.iBentNum,
+                                                    tempBendData.dLength_One,
+                                                    tempBendData.dLength_Two);
+                            }
+                            else
+                            {  //本次任务结束，切换到下一个index
+                                iBendListIndex += 1;
+                            }
+
+                            iBendStatus = 0;
+                            iCutStatus = 0;
+                        }
+
+
+                    }
+                    #endregion
+
+
+                    #region //如果在状态1，判断是否完成了一次折弯，并切断了料， 如果是，则发送字符串完成折弯的命令， 并进入下一状态（当前折弯任务减1，到0位置）
+                    if (iBendStatus == 1)
+                    { //状态1， 说明已经启动了折弯， 等待并判断折弯结束型号， 0x06
+                        //double dCurRectLength;  //记录当前已经伸出的矩形长度
+                        //double dTargetRectLengthSum;
+                        if (dStartBendLength < dCurMaterialLength) { //续接了一根料
+                            dCurRectLength = dStartBendLength + 5000 - dCurMaterialLength;
+                        } else {
+                            dCurRectLength = dStartBendLength - dCurMaterialLength;
+                        }
+
+                        dTargetRectLengthSum = 2 * (dBendHeight + dBendLenght) - (6 + Convert.ToDouble(BendTaskList[iBendListIndex].dGlueDepth)) * 8 - 1.6;  //计算当前的目标切割长度
+                        if ((Math.Abs(dTargetRectLengthSum - dCurRectLength) < 200) && (iCutStatus == 0x0E || iCutStatus == 0x14))   //
+                        {//折弯结束
+                            strToHex("06 01 00 FF 06 31 00 01 11 05 13 A0 04");  //先发送的第一条命令
+                            iBendStatus = 2;  //达到折弯长度，等待发送 折弯次数减一的数据
+                            iCutStatus = 0;
+                        }
+
+                        if (iCutStatus == 0x14)
+                        { //断料了
+                            if (!string.IsNullOrWhiteSpace(textBox2.Text))
+                            {
+                                if (Math.Abs(dCurRectLength - dTargetRectLengthSum) > 800)  //有断料，且距离目标长度偏差大，重置其实料长
+                                {
+                                    //testi++;
+                                    dStartBendLength = float.Parse(textBox2.Text);  //记录折弯开始的余料长度
+                                }
+
+                            }
+                        }
+                    }
+                    #endregion
+
+
+                    #region  //状态0，  如果有任务则发送任务
+                    if (iBendStatus == 0)
+                    {
+                        if (iBendListIndex < BendTaskList.Count)  //下标从0开始
+                        {
+                            double dLengthOne = BendTaskList[iBendListIndex].dLength_One;
+                            double dLengthTwo = BendTaskList[iBendListIndex].dLength_Two;
+                            double dTotalLength = 2 * (dLengthOne + dLengthTwo);
+
+                            //if
+
+                            //double[] dArrLength = new double[5];
+                            //dArrLength[0] = 80;
+                            //dArrLength[1] = dArrLength[0] + dLengthOne;
+                            //dArrLength[2] = dArrLength[1] + dLengthTwo;
+                            //dArrLength[3] = dArrLength[2] + dLengthOne;
+
+                            startBend(BendTaskList[iBendListIndex].dGlueDepth,
+                                        BendTaskList[iBendListIndex].iTaskNum - BendTaskList[iBendListIndex].iBentNum,
+                                        BendTaskList[iBendListIndex].dLength_One,
+                                        BendTaskList[iBendListIndex].dLength_Two);  // 发送胶深、次数、长度1、长度2
+                            iBendStatus = 1;  //进入下一个状态
+                        }
+                    }
+                    #endregion
 
                     break;
                 default:
                     break;
             }
 
-            if (iBenching == 1)
+            if (iBendStatus == 0)
             {
-                double dCurRectLength;
-                if (dStartBenchLength < dCurMaterialLength )
-                {
-                    dCurRectLength = dStartBenchLength + 5000 - dCurMaterialLength;
-                }
-                else
-                {
-                    dCurRectLength = dStartBenchLength - dCurMaterialLength;
-                }
-                double dTargetRectLengthSum = 2 * (dBenchHeight + dBenchLenght) - (6 + Convert.ToInt32(dataGridView1.Rows[0].Cells[0].Value))*8 -1.6;  //
-                if (Math.Abs(dTargetRectLengthSum - dCurRectLength) < 2)
-                {//折弯结束
-                    strToHex("06 01 00 FF 06 31 00 01 11 05 13 A0 04");  //先发送的第一条命令
-                    iBenching = 2;  //达到折弯长度，等待发送 折弯次数减一的数据
-                }
-            }
-            else if (iBenching == 2)
-            {
-                int iClueDepth = Convert.ToInt32(dataGridView1.Rows[0].Cells[0].Value);
-                int iNum = Convert.ToInt32(dataGridView1.Rows[0].Cells[1].Value);
-                int iLength = Convert.ToInt32(dataGridView1.Rows[0].Cells[2].Value);
-                int iHeight = Convert.ToInt32(dataGridView1.Rows[0].Cells[3].Value);
-                string strBenchData = "06 01 00 FF 22 18 00 0E 06 00 C8 "; //启动折弯胶条深度、数量、长度、宽度的模板数据
-                string strTemp = FloatToString((float)iClueDepth);
-                strBenchData += strTemp + " ";
-                strTemp = FloatToString((float)(iNum-1));
-                strBenchData += strTemp + " ";
-                strTemp = FloatToString((float)iLength);
-                strBenchData += strTemp + " ";
-                strTemp = FloatToString((float)iHeight);
-                strBenchData += strTemp + " 00 00 00 00 00 00 00 00 00 00 00 00";
+                //iCutStatus = 0;
+  
 
-
-                List<byte> byteLsit = new List<byte>();
-                byte byteTemp;
-                for (int i = 0; i < strBenchData.Length; i += 3)  //把字符串改成byte数据，用list存储
-                {
-                    if ((i + 1) < strBenchData.Length)
-                    {
-                        byteTemp = (byte)(HexCharToValue(strBenchData[i]) * 16);
-                        byteTemp += HexCharToValue(strBenchData[i + 1]);
-                    }
-                    else
-                    {
-                        byteTemp = HexCharToValue(strBenchData[i]);
-                    }
-
-                    byteLsit.Add(byteTemp);
-                }
-
-                byte[] byteDataArray = byteLsit.ToArray();
-                byteLsit.Add(GetLRC_Result(byteDataArray, 1, 38));
-                byteLsit.Add(04);
-                byte[] SendByteArray = byteLsit.ToArray();
-                if (SerialPort1.IsOpen)
-                {
-                    SerialPort1.Write(SendByteArray, 0, byteLsit.Count);  //根据内容发送胶深、数量、长度、宽度
-                }
-
-
-                iBenching = 0;  //不处于折弯过程了
             }
 
-            
-            ManipulateData();  //解析余料长度
+#region 
+
+            //if (iBendStatus == 1)
+            //{//已经发送了折弯数据，并设置为连续模式
+                //double dCurRectLength;  //记录当前已经伸出的矩形长度
+                //double dTargetRectLengthSum;
+                //if (dStartBendLength < dCurMaterialLength) { //续接了一根料
+                //    dCurRectLength = dStartBendLength + 5000 - dCurMaterialLength;
+                //} else {
+                //    dCurRectLength = dStartBendLength - dCurMaterialLength;
+                //}
+
+
+                //if (iBendListIndex == 0xFFFF)
+                //{ //测试模式， 默认胶深8，次数1， L1：300， L2：450mm
+                //    dTargetRectLengthSum = 2 * (dBendHeight + dBendLenght) - (6 + 8) * 8 - 1.6;
+                //    if (Math.Abs(dTargetRectLengthSum - dCurRectLength) < 2 && iCutStatus == 0x0E)
+                //    {//折弯结束
+                //        strToHex("06 01 00 FF 06 31 00 01 11 05 13 A0 04");  //先发送的第一条命令
+                //        iBendStatus = 2;  //达到折弯长度，等待发送 折弯次数减一的数据
+                //       // iCutStatus = 0;
+                //    }
+                //} 
+                //else
+                //{
+                //    dTargetRectLengthSum = 2 * (dBendHeight + dBendLenght) - (6 + Convert.ToInt32(dataGridView1.Rows[0].Cells[0].Value)) * 8 - 1.6;  //
+                //    if (Math.Abs(dTargetRectLengthSum - dCurRectLength) < 2)
+                //    {//折弯结束
+                //        strToHex("06 01 00 FF 06 31 00 01 11 05 13 A0 04");  //先发送的第一条命令
+                //        iBendStatus = 2;  //达到折弯长度，等待发送 折弯次数减一的数据
+                //    }
+                //}
+
+
+
+            //}
+            //else if (iBendStatus == 2)
+            //{
+            //    if (iBendListIndex == 0xFFFF)
+            //    {//仅仅做测试用
+            //        GetBendSendStrData(8, 0, 300, 450);  //测试数据，将切割次数清零
+            //        iBendListIndex = 0;
+            //    } else {
+            //        int iGlueDepth = Convert.ToInt32(dataGridView1.Rows[0].Cells[0].Value);
+            //        int iNum = Convert.ToInt32(dataGridView1.Rows[0].Cells[1].Value);
+            //        int iLength = Convert.ToInt32(dataGridView1.Rows[0].Cells[2].Value);
+            //        int iHeight = Convert.ToInt32(dataGridView1.Rows[0].Cells[3].Value);
+            //        GetBendSendStrData(iGlueDepth, iNum, iLength, iHeight);
+            //    }
+
+
+
+
+            //    //iCutStatus = 0;
+            //    iBendStatus = 0;  //不处于折弯过程了
+            //}
+
+
+#endregion
         }
+
+
 
         void sendToSerialPort(string strSend)
         {
@@ -1122,6 +1326,47 @@ namespace DataCaptueTest
 
         }
 
+
+        //将string字符串转化为byte数组
+        public byte[] StrToByteArray(string strInput)
+        {
+            byte[] byteToReturn = new byte[1000];
+            List<byte> byteList = new List<byte>();
+            //int j = 0;
+            for (int i = 0; i < strInput.Length; i++)
+            {
+                if (i % 3 == 2) //如果不是空格分隔hex数据，就报错，不发送数据
+                {
+                    if (strInput[i] != 0x20)
+                    {
+                        MessageBox.Show("输入的16进制数据，空格位置不对，发送失败！");
+                        return null;
+                    }
+                }
+            }
+
+            byte temp = 0;
+            for (int i = 0; i < strInput.Length; i += 3)
+            {
+
+                if ((i + 1) < strInput.Length)
+                {
+                    temp = (byte)(HexCharToValue(strInput[i]) * 16);
+                    temp += HexCharToValue(strInput[i + 1]);
+                }
+                else
+                {
+                    temp = HexCharToValue(strInput[i]);
+                }
+                byteList.Add(temp);
+                
+            }
+
+            return byteList.ToArray();
+
+
+        }
+
         private void timer3_Tick(object sender, EventArgs e)
         {
             byte[] sendData = new byte[] { 0x06, 0x01, 0x00, 0xFF, 0x1C, 0x21, 0x00, 0x00, 
@@ -1131,12 +1376,12 @@ namespace DataCaptueTest
             if (iKeyHint == -1)
             {//向下键按下
                 float fLength = float.Parse(textBox4.Text);
-                fLength -= 0.7F;
+                fLength -= 1F;
                 textBox4.Text = fLength.ToString();
             } else if(iKeyHint == 1) {
                 //向上键按下
                 float fLength = float.Parse(textBox4.Text);
-                fLength += 0.7F;
+                fLength += 1F;
                 textBox4.Text = fLength.ToString();
             }
 
@@ -1146,8 +1391,18 @@ namespace DataCaptueTest
                 float fLength = float.Parse(textBox4.Text);
                 byte[] byteLength = BitConverter.GetBytes(fLength);
 
-                byteSwicth(byteLength);  //将byte的0、1对调， 2、3对调
+                if (checkBox4.Checked == true)
+                { //更新8个字节的数据
+                    string tempStr = textBox5.Text;
+                    byte[] tempByteArray = StrToByteArray(tempStr);
 
+                    for (int i = 0; i < 8; i++) {
+                        sendData[9 + i] = tempByteArray[i];
+                    }
+                }
+
+                //更新余料长度数据
+                byteSwicth(byteLength);  //将byte的0、1对调， 2、3对调
                 for (int i=0; i < 4; i++ )
                 {
                     sendData[29 + i] = byteLength[i];
@@ -1155,6 +1410,8 @@ namespace DataCaptueTest
 
                 byte byteLRC_Result = GetLRC_Result(sendData, 1, 32);
                 sendData[33] = byteLRC_Result;
+
+
 
                 if (SerialPort1.IsOpen)
                 {
@@ -1207,30 +1464,115 @@ namespace DataCaptueTest
 
         public void button6_Click(object sender, EventArgs e)
         {
-            if (!SerialPort1.IsOpen)
-            {
+            if (iBendStatus != 0 && BendTaskList.Count != 0) {
+                MessageBox.Show("当前还有未完成折弯"); return;
+            }
+
+            //startBend(8, 1,  300, 450);  //测试折弯数据胶深8， 次数1， L1：300， L2：450mm
+            //iBendListIndex = 0xFFFF;  //表示测试状态
+            BendTaskList.Clear();
+            bendData TempBendData = new bendData();
+            TempBendData.dGlueDepth = 8;
+            TempBendData.iTaskNum = 1;
+            TempBendData.dLength_One = 300;
+            TempBendData.dLength_Two = 450;
+            TempBendData.iBentNum = 0;
+            TempBendData.iRowIndex = 0;
+
+            BendTaskList.Add(TempBendData);
+        
+        }
+
+        //传入胶深、 折弯次数、折弯长度1、折弯长度2
+        public void startBend(double iClueDepth,int iNum, double iLength, double iHeight)
+        {
+            if (!SerialPort1.IsOpen) {
+                MessageBox.Show("串口未打开");
                 return;
             }
 
-            string strBenchData = "06 01 00 FF 22 18 00 0E 06 00 C8 "; //启动折弯胶条深度、数量、长度、宽度的模板数据
-            string strConform = "06 01 00 FF 06 31 00 01 11 05 13 A0 04";  //用于说明，本次折弯要结束了，前置命令
-            string strEndBenchData = "06 01 00 FF 22 18 00 0E 06 00 C8 00 00 41 00 00 00 3F 80 00 00 43 AF 00 00 43 B9 00 00 00 00 00 00 00 00 00 00 00 00 FD 04";
-            string strBenchStart = "06 01 00 FF 06 30 00 01 11 05 02 B2 04";  //设置好折弯数据后， 发送此命令
+   
+            //string strBenchData = "06 01 00 FF 22 18 00 0E 06 00 C8 "; //启动折弯胶条深度、数量、长度、宽度的模板数据，将要发送的数据依次往后追加
 
-            int iClueDepth = Convert.ToInt32(dataGridView1.Rows[0].Cells[0].Value);
-            int iNum = Convert.ToInt32(dataGridView1.Rows[0].Cells[1].Value);
-            int iLength = Convert.ToInt32(dataGridView1.Rows[0].Cells[2].Value);
-            int iHeight = Convert.ToInt32(dataGridView1.Rows[0].Cells[3].Value);
+            //string strTemp = FloatToString((float)iClueDepth);
+            //strBenchData += strTemp + " ";
+            //if (iNum < 1)
+            //{
+            //    MessageBox.Show("错误，折弯次数小于1");
+            //    return; //折弯次数小于1， 直接退出
+            //}
+            //strTemp = FloatToString((float)iNum);
+            //strBenchData += strTemp + " ";
+            //strTemp = FloatToString((float)iLength);
+            //strBenchData += strTemp + " ";
+            //strTemp = FloatToString((float)iHeight);
+            //strBenchData += strTemp + " 00 00 00 00 00 00 00 00 00 00 00 00";
 
-            dBenchHeight = iHeight;
-            dBenchLenght = iLength;
+            if (!string.IsNullOrWhiteSpace(textBox2.Text))
+            {
+                dStartBendLength = float.Parse(textBox2.Text);  //记录折弯开始的余料长度
+            }
 
+            GetBendSendStrData(iClueDepth, iNum, iLength, iHeight);
+
+
+            #region
+            //List<byte> byteLsit = new List<byte>();
+            //byte byteTemp;
+            //for (int i = 0; i < strBenchData.Length; i += 3)
+            //{
+
+            //    if ((i + 1) < strBenchData.Length)
+            //    {
+            //        byteTemp = (byte)(HexCharToValue(strBenchData[i]) * 16);
+            //        byteTemp += HexCharToValue(strBenchData[i + 1]);
+            //    }
+            //    else
+            //    {
+            //        byteTemp = HexCharToValue(strBenchData[i]);
+            //    }
+
+            //    byteLsit.Add(byteTemp);
+            //}
+
+            //byte[] byteDataArray = byteLsit.ToArray();
+            //byteLsit.Add(GetLRC_Result(byteDataArray, 1, 38));
+            //byteLsit.Add(04);
+            //byte[] SendByteArray = byteLsit.ToArray();
+            //if (SerialPort1.IsOpen)
+            //{
+            //    SerialPort1.Write(SendByteArray, 0, byteLsit.Count);  //根据内容发送胶深、数量、长度、宽度
+            //}
+
+            //byte[] tempByteArray = byteLsit.ToArray();
+            //strBendSendData = "";
+            //for (int i = 0; i < byteLsit.Count; i++)
+            //{
+            //    strBendSendData += byteToHexStr[tempByteArray[i]];
+            //}
+            #endregion
+
+            Delay(150);
+
+            strToHex("06 01 00 FF 06 30 00 01 11 05 02 B2 04");  //设置连续模式， 即启动折弯
+
+            //iBendStatus = 1;  //发送了折弯数据，并启动了折弯
+
+
+        }
+
+        /// <summary>
+        /// 根据胶条深度、数量、长度、宽度，追加LRC，然后发送
+        /// </summary>
+        /// <param name="iClueDepth"></param>
+        /// <param name="iNum"></param>
+        /// <param name="iLength"></param>
+        /// <param name="iHeight"></param>
+        public void GetBendSendStrData(double iClueDepth, int iNum, double iLength, double iHeight)  //根据胶条深度、数量、长度、宽度，追加LRC，然后发送
+        {
+            string strBenchData = "06 01 00 FF 22 18 00 0E 06 00 C8 "; //启动折弯胶条深度、数量、长度、宽度的模板数据，将要发送的数据依次往后追加
             string strTemp = FloatToString((float)iClueDepth);
             strBenchData += strTemp + " ";
-            if (iNum <1)
-            {
-                return; //折弯次数小于1， 直接退出
-            }
             strTemp = FloatToString((float)iNum);
             strBenchData += strTemp + " ";
             strTemp = FloatToString((float)iLength);
@@ -1238,18 +1580,22 @@ namespace DataCaptueTest
             strTemp = FloatToString((float)iHeight);
             strBenchData += strTemp + " 00 00 00 00 00 00 00 00 00 00 00 00";
 
-            List <byte> byteLsit = new List<byte>();
-            byte byteTemp ;
+            dBendHeight = iHeight;  //更新当前折弯的尺寸
+            dBendLenght = iLength;
+
+            AddLRC_ByteSend(strBenchData);  //追加LRC校验，然后改成以字节发送
+        }
+
+        public void AddLRC_ByteSend(string strBenchData)  //给string追加LRC校验， 然后以字节形式发出去
+        {
+            List<byte> byteLsit = new List<byte>();
+            byte byteTemp;
             for (int i = 0; i < strBenchData.Length; i += 3)
             {
-
-                if ((i + 1) < strBenchData.Length)
-                {
+                if ((i + 1) < strBenchData.Length)  {
                     byteTemp = (byte)(HexCharToValue(strBenchData[i]) * 16);
                     byteTemp += HexCharToValue(strBenchData[i + 1]);
-                }
-                else
-                {
+                } else {
                     byteTemp = HexCharToValue(strBenchData[i]);
                 }
 
@@ -1265,31 +1611,8 @@ namespace DataCaptueTest
                 SerialPort1.Write(SendByteArray, 0, byteLsit.Count);  //根据内容发送胶深、数量、长度、宽度
             }
 
-            byte[] tempByteArray = byteLsit.ToArray();
-            strBenchSendData = "";
-            for (int i = 0; i < byteLsit.Count; i++)
-            {
-                strBenchSendData += byteToHexStr[tempByteArray[i]];
-            }
-
-
-                Delay(150);
-
-            strToHex("06 01 00 FF 06 30 00 01 11 05 02 B2 04");  //设置间断， 即启动折弯
-
-            iBenching = 1;  //f发送了折弯数据，并启动了折弯
-
-
-            if (!string.IsNullOrWhiteSpace(textBox2.Text))
-            {
-                dStartBenchLength = float.Parse(textBox2.Text);
-            }
-
-        
+            byteLsit.Clear();
         }
-
-
-
 
         string FloatToString(double dValueNum)
         {
@@ -1309,6 +1632,153 @@ namespace DataCaptueTest
             //strTemp.Replace("-", " ");
             return strTemp.Replace('-', ' ');
 
+        }
+
+        private void dataGridView1_RowsAdded(object sender, DataGridViewRowsAddedEventArgs e)
+        {
+
+        }
+
+        private void dataGridView1_MouseDown(object sender, MouseEventArgs e)
+        {
+            
+        }
+
+        private void dataGridView1_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            //if (e.ColumnIndex == 0)
+            //{
+            //    int iRowIndex = e.RowIndex;
+            //    bool tempValue = (bool)dataGridView1.Rows[iRowIndex].Cells[0].Value;
+            //    dataGridView1.Rows[iRowIndex].Cells[0].Value = !tempValue;
+
+            //    dataGridView1.Update();
+            //}
+        }
+
+        private void dataGridView1_RowEnter(object sender, DataGridViewCellEventArgs e)
+        {
+            if (dataGridView1.Rows.Count <1)
+            {
+                return;
+            }
+            //int iRowIndex = e.RowIndex;
+            //bool tempValue = (bool)dataGridView1.Rows[iRowIndex].Cells[0].Value;
+            //dataGridView1.Rows[iRowIndex].Cells[0].Value = !tempValue;
+        }
+
+        private void dataGridView1_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void dataGridView1_CellValueChanged(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.ColumnIndex == 0) //checkbox列
+            {
+                if (Convert.ToInt32(dataGridView1.CurrentRow.Cells[2].Value) <= 0 && (bool)dataGridView1.CurrentRow.Cells[0].Value)
+                {
+                    dataGridView1.CurrentRow.Cells[0].Value = false;
+
+                    //lbl_Tips.Text = "折弯次数错误";
+
+                    //MessageBox.Show("折弯次数错误");
+                }
+                else
+                {
+                    lbl_Tips.Text = "";
+                }
+            }
+        }
+
+        private void button7_Click(object sender, EventArgs e)
+        {
+            if (iBendStatus != 0 && BendTaskList.Count !=0)
+            {
+                MessageBox.Show("请等待折弯结束，再尝试");
+                return;
+            }
+            //检查折弯尺寸， 并更新折弯任务
+            bendData TempBendData = new bendData();
+            BendTaskList.Clear();
+            for (int i = 0; i < dataGridView1.Rows.Count; i++ )
+            {
+               
+                if ((bool)dataGridView1.Rows[i].Cells[0].Value)
+                {//checkbox选中了
+                    #region //判断任务中的数据是否OK
+                    TempBendData.dGlueDepth = double.Parse(dataGridView1.Rows[i].Cells[1].Value.ToString());
+                    TempBendData.iTaskNum = int.Parse(dataGridView1.Rows[i].Cells[2].Value.ToString());
+                    TempBendData.dLength_One = double.Parse(dataGridView1.Rows[i].Cells[3].Value.ToString());
+                    TempBendData.dLength_Two = double.Parse(dataGridView1.Rows[i].Cells[4].Value.ToString());
+                    TempBendData.iBentNum = 0;
+                    TempBendData.iRowIndex = i;
+
+                    if (TempBendData.iTaskNum < 1) { MessageBox.Show("第" + (i + 1).ToString() + "行，折弯次数错误。\r\n" + "执行失败"); return; }
+                    if (TempBendData.dLength_One < 300) { MessageBox.Show("第" + (i + 1).ToString() + "行，折弯尺寸太小\r\n" + "执行失败"); return; }
+                    if (TempBendData.dLength_Two < 300) { MessageBox.Show("第" + (i + 1).ToString() + "行，折弯尺寸太小\r\n" + "执行失败"); return; }
+                #endregion
+                    BendTaskList.Add(TempBendData);
+                }
+
+            }
+            ;
+            
+            if (BendTaskList.Count < 1)
+            {
+                MessageBox.Show("未选中数据");
+                return;
+            }
+            iBendListIndex = 0;
+        }
+
+
+
+        private void textBox5_KeyDown(object sender, KeyEventArgs e)
+        {
+
+
+        }
+
+        private void textBox5_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (checkBox4.Checked == true)
+            {
+                e.KeyChar = (char)0;
+                MessageBox.Show("发送状态，不可编辑");
+            }
+        }
+
+        private void textBox8_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            if (e.KeyChar == 0x20) e.KeyChar = (char)0;  //禁止空格键
+            //if ((e.KeyChar == 0x2D) && (((TextBox)sender).Text.Length == 0)) return;   //处理负数
+            if (e.KeyChar > 0x20)
+            {
+                try
+                {
+                    double.Parse(((TextBox)sender).Text + e.KeyChar.ToString());
+                }
+                catch
+                {
+                    e.KeyChar = (char)0;   //处理非法字符
+                }
+            }
+        }
+
+        private void button8_Click(object sender, EventArgs e)
+        {
+            //iBendStatus = 0;
+            //bendData tempBendData = BendTaskList[0];
+            strToHex("06 01 00 FF 06 31 00 01 11 05 13 A0 04");  //先发送的第一条命令
+            GetBendSendStrData(8, 0,  500,  500);
+            BendTaskList.Clear();
+            iBendStatus = 0;
+        }
+
+        private void button9_Click(object sender, EventArgs e)
+        {
+            iBendStatus = 0;
         }
 
     }
